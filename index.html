@@ -1,200 +1,228 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta
       name="description"
-      content="自动泊车路径规划演示：选择空闲车位，规划避障路线并自动完成泊车。"
+      content="自动泊车规划与控制仿真平台：车辆运动学建模、Hybrid A* + Reeds-Shepp 路径规划、路径平滑、速度规划与闭环跟踪控制的可视化演示。"
     />
-    <title>AutoPark 智能泊车系统</title>
+    <title>AutoPark 自动泊车仿真平台</title>
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <div class="app-shell">
-      <header class="topbar">
-        <a class="brand" href="#" aria-label="AutoPark 首页">
-          <span class="brand-mark">
-            <svg viewBox="0 0 40 40" aria-hidden="true">
-              <path d="M9 29V13.5A4.5 4.5 0 0 1 13.5 9h10a8 8 0 0 1 0 16H17" />
-              <path d="M17 17h6.5a.5.5 0 0 1 0 1H17z" />
-            </svg>
-          </span>
-          <span>
-            <strong>AutoPark</strong>
-            <small>智能泊车系统</small>
-          </span>
-        </a>
+    <header class="topbar">
+      <a class="brand" href="#" aria-label="AutoPark 首页">
+        <span class="brand-mark">
+          <svg viewBox="0 0 40 40" aria-hidden="true">
+            <path d="M9 29V13.5A4.5 4.5 0 0 1 13.5 9h10a8 8 0 0 1 0 16H17" />
+          </svg>
+        </span>
+        <span>
+          <strong>AutoPark</strong>
+          <small>自动泊车规划与控制仿真平台 · v1.1</small>
+        </span>
+      </a>
+      <nav class="tech-tags" aria-label="核心算法">
+        <span>运动学自行车模型</span>
+        <span>Hybrid A*</span>
+        <span>Reeds-Shepp</span>
+        <span>梯度平滑</span>
+        <span>速度规划</span>
+        <span>后轮反馈 / 纯跟踪</span>
+      </nav>
+      <div class="system-state">
+        <span id="systemDot" class="pulse-dot"></span>
+        <span id="systemText">系统就绪</span>
+      </div>
+    </header>
 
-        <div class="system-state">
-          <span class="pulse-dot"></span>
-          <span>系统在线</span>
-          <span class="divider"></span>
-          <span id="clock">--:--:--</span>
+    <main class="layout">
+      <section class="card map-card">
+        <div class="card-heading">
+          <div>
+            <p class="section-label">ENVIRONMENT MODEL · 50 m × 30.6 m</p>
+            <h2>停车场环境与规划可视化</h2>
+          </div>
+          <div class="layer-chips" id="layerChips" role="group" aria-label="可视化图层"></div>
         </div>
-      </header>
 
-      <main class="dashboard">
-        <section class="hero-copy">
-          <div>
-            <p class="eyebrow">AUTONOMOUS PARKING / L4 DEMO</p>
-            <h1>选择车位，<span>剩下的交给系统。</span></h1>
+        <div class="canvas-wrap" id="canvasWrap">
+          <canvas id="mapCanvas" aria-label="停车场地图"></canvas>
+          <div id="canvasHint" class="canvas-hint">点击绿色空闲车位选择目标；拖动白色车辆可修改起点，滚轮缩放</div>
+          <div id="tooltip" class="map-tooltip" hidden></div>
+          <div class="map-tools">
+            <button id="editButton" class="tool-button" type="button" title="编辑场景：点车位切换占用，点空地放置/移除锥桶">
+              编辑场景
+            </button>
+            <button id="followButton" class="tool-button" type="button" title="泊车时镜头跟随车辆">跟随视角</button>
+            <button id="resetViewButton" class="tool-button" type="button">重置视角</button>
           </div>
-          <p class="intro">
-            基于环境感知与 A* 路径搜索，实时计算安全轨迹，完成自主泊车。
-          </p>
-        </section>
+        </div>
 
-        <section class="workspace">
-          <div class="map-card">
-            <div class="card-heading">
-              <div>
-                <p class="section-label">LIVE PARKING MAP</p>
-                <h2>停车场实时地图</h2>
-              </div>
-              <div class="legend" aria-label="地图图例">
-                <span><i class="legend-dot free"></i>可用</span>
-                <span><i class="legend-dot occupied"></i>已占用</span>
-                <span><i class="legend-dot selected"></i>已选择</span>
-                <span><i class="legend-line"></i>规划路径</span>
-              </div>
-            </div>
+        <div class="playback">
+          <button id="playButton" class="icon-button" type="button" disabled aria-label="播放 / 暂停">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path id="playIcon" d="M8 5v14l11-7z" /></svg>
+          </button>
+          <span id="simClock" class="sim-clock">0.0 s</span>
+          <input id="timeline" type="range" min="0" max="1000" value="0" disabled aria-label="仿真时间轴" />
+          <label class="speed-select">
+            倍速
+            <select id="speedSelect">
+              <option value="0.5">0.5×</option>
+              <option value="1">1×</option>
+              <option value="2" selected>2×</option>
+              <option value="4">4×</option>
+              <option value="8">8×</option>
+            </select>
+          </label>
+        </div>
 
-            <div class="canvas-wrap">
-              <canvas id="parkingCanvas" width="1200" height="680">
-                你的浏览器不支持 Canvas。
-              </canvas>
-              <div class="map-badge">
-                <span class="scan-icon"></span>
-                环境感知中
-              </div>
-              <div id="canvasHint" class="canvas-hint">点击绿色空闲车位进行选择</div>
+        <div class="stage-detail" id="stageDetail">
+          <div class="stage-detail-head">
+            <span id="stageDetailIndex">01</span>
+            <div>
+              <strong id="stageDetailTitle">环境建模</strong>
+              <small id="stageDetailSubtitle">点击右侧流水线中的任一阶段查看算法说明</small>
             </div>
           </div>
+          <p id="stageDetailBody"></p>
+          <code id="stageDetailFormula"></code>
+        </div>
+      </section>
 
-          <aside class="control-panel">
-            <div class="panel-heading">
-              <div>
-                <p class="section-label">PARKING CONTROL</p>
-                <h2>泊车控制</h2>
-              </div>
-              <span id="stagePill" class="stage-pill">等待选位</span>
+      <aside class="side">
+        <section class="card mission">
+          <div class="panel-heading">
+            <div>
+              <p class="section-label">MISSION</p>
+              <h2>泊车任务</h2>
             </div>
-
-            <div class="stepper" aria-label="泊车进度">
-              <div class="step active" data-step="1">
-                <span>01</span>
-                <div>
-                  <strong>选择车位</strong>
-                  <small>选择绿色空闲车位</small>
-                </div>
-              </div>
-              <div class="step" data-step="2">
-                <span>02</span>
-                <div>
-                  <strong>规划路线</strong>
-                  <small>A* 搜索最优安全轨迹</small>
-                </div>
-              </div>
-              <div class="step" data-step="3">
-                <span>03</span>
-                <div>
-                  <strong>自动泊车</strong>
-                  <small>车辆自动驶入目标位置</small>
-                </div>
-              </div>
-            </div>
-
-            <div class="selection-card">
-              <div class="selection-icon">P</div>
-              <div>
-                <small>目标车位</small>
-                <strong id="selectedSpot">尚未选择</strong>
-              </div>
-              <span id="spotDistance">-- m</span>
-            </div>
-
-            <div class="metrics">
-              <div>
-                <span>预计距离</span>
-                <strong id="metricDistance">--</strong>
-              </div>
-              <div>
-                <span>预计用时</span>
-                <strong id="metricTime">--</strong>
-              </div>
-              <div>
-                <span>路径节点</span>
-                <strong id="metricNodes">--</strong>
-              </div>
-            </div>
-
-            <div class="speed-control">
-              <div>
-                <label for="speedRange">泊车速度</label>
-                <output id="speedOutput" for="speedRange">2.5×</output>
-              </div>
-              <input
-                id="speedRange"
-                type="range"
-                min="1"
-                max="4"
-                value="2.5"
-                step="0.5"
-              />
-            </div>
-
-            <div class="actions">
-              <button id="planButton" class="button secondary" disabled>
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="M4 18h4l3-12h9M7 15l4 3 4-4" />
-                </svg>
-                规划安全路线
-              </button>
-              <button id="parkButton" class="button primary" disabled>
-                <span>开始自动泊车</span>
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="m9 6 6 6-6 6" />
-                </svg>
-              </button>
-              <button id="resetButton" class="button ghost">
-                重置演示
-              </button>
-            </div>
-
-            <div id="safetyNotice" class="safety-notice">
-              <span class="shield-icon">✓</span>
-              <div>
-                <strong>安全系统已启用</strong>
-                <small>360° 障碍物监测 · 紧急制动待命</small>
-              </div>
-            </div>
-          </aside>
-        </section>
-
-        <section class="status-strip" aria-label="车辆传感器状态">
-          <div>
-            <span class="status-icon">◎</span>
-            <p><small>定位精度</small><strong>± 2.4 cm</strong></p>
+            <span id="stagePill" class="stage-pill">等待选位</span>
           </div>
-          <div>
-            <span class="status-icon">⌁</span>
-            <p><small>超声波雷达</small><strong>12 / 12 在线</strong></p>
+
+          <div class="selection-card">
+            <div class="selection-icon">P</div>
+            <div>
+              <small>目标车位</small>
+              <strong id="selectedSpot">尚未选择</strong>
+            </div>
+            <span id="spotType">--</span>
           </div>
-          <div>
-            <span class="status-icon">◇</span>
-            <p><small>环视摄像头</small><strong>4 / 4 在线</strong></p>
+
+          <div class="option-row">
+            <span>泊车方式</span>
+            <div class="segmented" id="modeControl">
+              <button type="button" data-value="reverse-in" class="active">倒车入库</button>
+              <button type="button" data-value="head-in">车头入库</button>
+            </div>
           </div>
-          <div>
-            <span class="status-icon">◌</span>
-            <p><small>可用车位</small><strong id="availableCount">--</strong></p>
+          <div class="option-row">
+            <span>跟踪控制器</span>
+            <div class="segmented" id="controllerControl">
+              <button type="button" data-value="rear-wheel-feedback" class="active">后轮反馈</button>
+              <button type="button" data-value="pure-pursuit">纯跟踪</button>
+            </div>
+          </div>
+          <label class="check-row">
+            <input id="replayToggle" type="checkbox" checked />
+            <span>回放 Hybrid A* 搜索过程</span>
+          </label>
+
+          <div class="actions">
+            <button id="planButton" class="button secondary" type="button" disabled>规划路径</button>
+            <button id="parkButton" class="button primary" type="button" disabled>开始泊车</button>
+            <button id="resetButton" class="button ghost" type="button">重置</button>
           </div>
         </section>
-      </main>
-    </div>
+
+        <section class="card pipeline">
+          <div class="panel-heading">
+            <div>
+              <p class="section-label">ALGORITHM PIPELINE</p>
+              <h2>算法流水线</h2>
+            </div>
+            <span id="planTotal" class="muted-num">-- ms</span>
+          </div>
+          <ol id="pipelineList" class="pipeline-list"></ol>
+        </section>
+
+        <section class="card cockpit">
+          <div class="panel-heading compact">
+            <p class="section-label">COCKPIT · 执行器与传感器</p>
+          </div>
+          <canvas id="dashboardCanvas" aria-label="驾驶舱仪表"></canvas>
+        </section>
+      </aside>
+
+      <section class="card telemetry">
+        <div class="panel-heading">
+          <div>
+            <p class="section-label">CLOSED-LOOP TELEMETRY</p>
+            <h2>闭环遥测</h2>
+          </div>
+          <span class="muted-num">底色：<i class="band-dot fwd"></i>前进 <i class="band-dot rev"></i>倒车</span>
+        </div>
+        <div class="chart-grid">
+          <canvas id="chartSpeed" aria-label="车速曲线"></canvas>
+          <canvas id="chartSteer" aria-label="前轮转角曲线"></canvas>
+          <canvas id="chartLateral" aria-label="横向误差曲线"></canvas>
+          <canvas id="chartHeading" aria-label="航向误差曲线"></canvas>
+        </div>
+      </section>
+
+      <section class="card results">
+        <div class="panel-heading">
+          <div>
+            <p class="section-label">EVALUATION</p>
+            <h2>规划与泊车评估</h2>
+          </div>
+          <span id="resultBadge" class="result-badge">未运行</span>
+        </div>
+        <dl class="kpi-grid" id="kpiGrid"></dl>
+      </section>
+
+      <section class="card vehicle-model">
+        <div class="panel-heading">
+          <div>
+            <p class="section-label">VEHICLE MODEL</p>
+            <h2>车辆模型与约束</h2>
+          </div>
+        </div>
+        <div class="model-body">
+          <div class="sliders">
+            <label>
+              <span>最大前轮转角 <output id="steerOut"></output></span>
+              <input id="steerRange" type="range" min="28" max="42" step="1" value="36" />
+            </label>
+            <label>
+              <span>规划转角利用率 <output id="usageOut"></output></span>
+              <input id="usageRange" type="range" min="0.7" max="1" step="0.02" value="0.88" />
+            </label>
+            <label>
+              <span>碰撞安全裕度 <output id="marginOut"></output></span>
+              <input id="marginRange" type="range" min="0.05" max="0.4" step="0.05" value="0.15" />
+            </label>
+            <label>
+              <span>定位噪声 <output id="noiseOut"></output></span>
+              <input id="noiseRange" type="range" min="0" max="0.1" step="0.01" value="0" />
+            </label>
+          </div>
+          <dl class="model-facts" id="modelFacts"></dl>
+          <div class="formula-card">
+            <strong>运动学自行车模型（后轴中心为参考点）</strong>
+            <code>ẋ = v·cos θ　ẏ = v·sin θ　θ̇ = v·tan δ / L</code>
+            <code>δ̇ = sat((δ<sub>cmd</sub> − δ) / τ<sub>δ</sub>, ±δ̇<sub>max</sub>)　v̇ = sat((v<sub>cmd</sub> − v) / τ<sub>v</sub>, a<sub>max</sub>)</code>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      AutoPark v1.1 · 纯前端零依赖 · 规划在 Web Worker 中运行 · 单位：米 / 弧度 / 秒
+    </footer>
 
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
-
-    <script src="app.js"></script>
+    <script type="module" src="src/ui/app.js"></script>
   </body>
 </html>
